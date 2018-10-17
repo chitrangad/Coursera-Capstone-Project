@@ -1,0 +1,133 @@
+---
+title: 'Coursera Data Science Capstone: Milestone Report'
+author: "Chitrangad Singh"
+date: "October 8, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Introduction
+
+This is the Milestone Report for the Coursera Data Science Capstone project. The report explains exploratory analysis and the goals for the eventual app and algorithm. This report briefly summarizesthe plans for creating the prediction algorithm and Shiny app. 
+This milestone report describes the major features of the training data with our exploratory data analysis and summarizes our plans for creating the predictive model.
+
+##Getting the Data
+
+Download the zip file containing the text files from the given link
+https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip.
+
+```{r Download data}
+# Download and unzip the file
+if(!file.exists("Coursera-SwiftKey.zip")){
+download.file("https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip","Coursera-SwiftKey.zip")
+unzip("Coursera-SwiftKey.zip")
+}
+```
+
+The zip file contains 3 different kinds of files for 4 different languages - 1) News, 2) Blogs and 3) Twitter feeds.
+Languages: 1) German, 2) English - United States, 3) Finnish and 4) Russian. For this project, the scope is limited to English - United States data sets.
+
+```{r Read Data}
+# Read the data files and omit NULL values. This is 1st level cleansing
+blogs<-readLines("final/en_US/en_US.blogs.txt", encoding="UTF-8", skipNul=TRUE)
+news<-readLines("final/en_US/en_US.news.txt", encoding="UTF-8", skipNul=TRUE)
+twitter<-readLines("final/en_US/en_US.twitter.txt", encoding="UTF-8", skipNul=TRUE)
+```
+
+Summarize the data properties:
+
+```{r Summarize}
+library(stringi)
+# Get file sizes in MB
+blogs.size<-file.info("final/en_US/en_US.blogs.txt")$size/1024^2
+news.size<-file.info("final/en_US/en_US.news.txt")$size/1024^2
+twitter.size<-file.info("final/en_US/en_US.twitter.txt")$size/1024^2
+
+# Get words in files
+blogs.words<-stri_count_words(blogs)
+news.words<-stri_count_words(news)
+twitter.words<-stri_count_words(twitter)
+
+# Summarizing in a data frame
+data.frame(source=c("blogs", "news", "twitter"),
+file.size.MB=c(blogs.size, news.size, twitter.size),
+num.lines=c(length(blogs), length(news), length(twitter)),
+num.words=c(sum(blogs.words), sum(news.words), sum(twitter.words)),
+mean.num.words=c(mean(blogs.words), mean(news.words), mean(twitter.words)))
+```
+
+##Data Cleansing
+
+This is a mandatory step before doing further exploratory analysis. Following would be done as part of the process: removing URLs, special characters, punctuations, numbers, whitespace, stopwords, and lower case. 
+For the sake of analysis, a random sample of about 1% will be picked up. 
+
+```{r Cleansing}
+library(tm)
+# Sampling 1%
+set.seed(123)
+data.sample <- c(sample(blogs, length(blogs)*0.01),
+               sample(news,length(news)*0.01),
+               sample(twitter,length(twitter)*0.01))
+
+# Create the base corpus and clean
+corpus<-VCorpus(VectorSource(data.sample))
+
+# Convert unwanted stuff to whitespace
+toSpace<-content_transformer(function(x, pattern)gsub(pattern, " ", x))
+corpus<-tm_map(corpus, toSpace, "(f|ht)tp(s?)://(.*)[.][a-z]+")
+corpus<-tm_map(corpus, toSpace, "@[^\\s]+")
+corpus<-tm_map(corpus, tolower)
+corpus<-tm_map(corpus, removeWords, stopwords("en"))
+corpus<-tm_map(corpus, removePunctuation)
+corpus<-tm_map(corpus, removeNumbers)
+corpus<-tm_map(corpus, stripWhitespace)
+corpus<-tm_map(corpus, PlainTextDocument)
+```
+##Exploratory Analysis
+
+Using unigrams, bigrams, and trigrams.
+```{r Analysys}
+library(RWeka)
+library(ggplot2)
+options(mc.cores=1)
+
+getFreq<-function(tdm){
+freq<-sort(rowSums(as.matrix(tdm)), decreasing=TRUE)
+return(data.frame(word=names(freq), freq=freq))
+}
+bigram<-function(x)NGramTokenizer(x, Weka_control(min=2, max=2))
+trigram<-function(x)NGramTokenizer(x, Weka_control(min=3, max=3))
+makePlot<-function(data, label){
+ggplot(data[1:30,], aes(reorder(word, -freq), freq))+
+labs(x=label, y="Frequency")+
+theme(axis.text.x=element_text(angle=60, size=12, hjust=1))+
+geom_bar(stat="identity", fill=I("grey50"))
+}
+
+# Get frequencies of most common n-grams in data sample
+freq1<-getFreq(removeSparseTerms(TermDocumentMatrix(corpus), 0.9999))
+freq2<-getFreq(removeSparseTerms(TermDocumentMatrix(corpus, control=list(tokenize=bigram)), 0.9999))
+freq3<-getFreq(removeSparseTerms(TermDocumentMatrix(corpus, control=list(tokenize=trigram)), 0.9999))
+```
+
+##Plots
+
+```{r Plots}
+# Plot showing 30 most common unigrams in the corpus.
+makePlot(freq1, "30 Most Common Unigrams")
+
+# Plot showing 30 most common bigrams in the corpus.
+makePlot(freq2, "30 Most Common Bigrams")
+
+# Plot showing30 most common trigrams in the corpus.
+makePlot(freq3, "30 Most Common Trigrams")
+```
+
+##Algorithm and the App
+
+As part of the project, the goal is toarrive at a predictive algorithm, and usethe algorithm to create a Shiny app.
+The algorithm should use n-gram model with frequency lookup similar to exploratory analysis done in this report. I intend to use trigram model to predict the next word. If no matching trigram can be found, then the algorithm would use the bigram model, and then to the unigram model if needed.
+The Shiny app should have an input box for user to key the work. The app should predict the next word using the algorithm.
